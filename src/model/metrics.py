@@ -38,6 +38,12 @@ def macro_f1(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     return 0.5 * (f1_score(y_true, y_pred) + f1_score(1 - y_true, 1 - y_pred))
 
 
+def log_loss(y_true: ArrayLike, y_prob: ArrayLike, eps: float = 1e-15) -> float:
+    y = np.asarray(y_true, dtype=np.float64)
+    p = np.clip(np.asarray(y_prob, dtype=np.float64), eps, 1 - eps)
+    return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+
+
 def report(y_true: ArrayLike, y_pred: ArrayLike) -> dict[str, float]:
     return {
         "accuracy": accuracy(y_true, y_pred),

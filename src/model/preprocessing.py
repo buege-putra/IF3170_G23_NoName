@@ -7,6 +7,11 @@ from .base import FloatArray, IntArray
 
 MEAL_ORDER = ["Room Only", "Breakfast", "Half Board", "Full Board"]
 CAP_COLUMNS = ["nightly_rate_idr", "days_before_arrival"]
+COUNT_CAPS = {
+    "num_adults": 4, "num_children": 3, "weekend_nights": 4,
+    "weekday_nights": 8, "prior_cancellations": 3, "special_requests": 4,
+}
+QUANTILE_BINS = {"days_before_arrival": 10, "nightly_rate_idr": 10}
 
 
 class Preprocessor:
@@ -41,6 +46,13 @@ class Preprocessor:
                 self.levels[c] = MEAL_ORDER
             else:
                 self.levels[c] = sorted(X[c].dropna().astype(str).unique())
+
+        raw = self._fill(X, cap=False)
+        self.edges = {
+            c: np.unique(np.quantile(raw[c], np.linspace(0, 1, n + 1)[1:-1]))
+            for c, n in QUANTILE_BINS.items()
+        }
+        self.year0 = int(raw["arrival_year"].min()) if "arrival_year" in raw else 2023
         return self
 
     def transform(self, df: pd.DataFrame) -> tuple[FloatArray, IntArray | None]:
@@ -60,6 +72,26 @@ class Preprocessor:
             parts.append(pd.get_dummies(codes, prefix=c, dtype=float))
         return pd.concat(parts, axis=1).to_numpy(dtype=float), self._target(df)
 
+    def transform_nb(self, df: pd.DataFrame) -> tuple[FloatArray, IntArray | None]:
+        """Return (X, y) dengan semua fitur diskret; edge bin diambil dari data fit."""
+        X = self._filled(df, cap=False)
+        d = {c: X[c].round().clip(0, cap).astype(int) for c, cap in COUNT_CAPS.items()}
+        d["needs_parking"] = X["needs_parking"].round().astype(int)
+        d["is_returning_guest"] = X["is_returning_guest"].astype(int)
+        d["arrival_month"] = X["arrival_month"].astype(int) - 1
+        d["arrival_year"] = (X["arrival_year"] - self.year0).astype(int)
+        d["prior_completed_bookings"] = np.digitize(X["prior_completed_bookings"], [1, 2, 5])
+        d["arrival_day"] = np.digitize(X["arrival_day"], [7.5, 15.5, 23.5])
+        for c in QUANTILE_BINS:
+            d[c] = np.digitize(X[c], self.edges[c])
+        out = pd.DataFrame(d, index=X.index)
+        for c in self.cat:
+            out[c] = pd.Categorical(X[c], categories=self.levels[c]).codes
+        cols = (list(COUNT_CAPS) + ["needs_parking", "is_returning_guest", "arrival_month",
+                "arrival_year", "prior_completed_bookings", "arrival_day"]
+                + list(QUANTILE_BINS) + self.cat)
+        return out[cols].to_numpy(dtype=float), self._target(df)
+
     def fit_transform(self, df: pd.DataFrame) -> tuple[FloatArray, IntArray | None]:
         return self.fit(df).transform(df)
 
@@ -77,16 +109,17 @@ class Preprocessor:
             X.loc[X["num_children"] >= 9, "num_children"] = np.nan
         return X
 
-    def _fill(self, X: pd.DataFrame) -> pd.DataFrame:
+    def _fill(self, X: pd.DataFrame, cap: bool = True) -> pd.DataFrame:
         X = X.copy()
         X[self.num] = X[self.num].fillna(self.med)
         X[self.cat] = X[self.cat].fillna(self.mode)
-        for c, (lower, upper) in self.bounds.items():
-            X[c] = X[c].clip(lower, upper)
+        if cap:
+            for c, (lower, upper) in self.bounds.items():
+                X[c] = X[c].clip(lower, upper)
         return X
 
-    def _filled(self, df: pd.DataFrame) -> pd.DataFrame:
-        return self._fill(self._clean(df.drop(columns=[self.id_col], errors="ignore")))
+    def _filled(self, df: pd.DataFrame, cap: bool = True) -> pd.DataFrame:
+        return self._fill(self._clean(df.drop(columns=[self.id_col], errors="ignore")), cap)
 
     def _target(self, df: pd.DataFrame) -> IntArray | None:
         if self.target not in df:

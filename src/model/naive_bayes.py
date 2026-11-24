@@ -6,17 +6,23 @@ from .base import Arrays, BaseModel, FloatArray, IntArray, Params
 
 
 class NaiveBayes(BaseModel):
-    """Gaussian untuk kolom numeric, Laplace untuk kolom categorical."""
+    """Gaussian untuk kolom numeric, Laplace untuk kolom categorical.
+
+    var_smoothing relatif terhadap varians maksimum, jadi Gaussian cocok untuk
+    fitur kontinu yang sudah ditransformasi. threshold None berarti argmax.
+    """
 
     def __init__(
         self,
         categorical: list[int] | None = None,
         var_smoothing: float = 1e-9,
         laplace: float = 1.0,
+        threshold: float | None = None,
     ) -> None:
         self.categorical = categorical or []
         self.var_smoothing = var_smoothing
         self.laplace = laplace
+        self.threshold = threshold
 
     def fit(self, X: FloatArray, y: IntArray) -> Self:
         X = np.asarray(X, dtype=float)
@@ -56,7 +62,10 @@ class NaiveBayes(BaseModel):
         return p / p.sum(axis=1, keepdims=True)
 
     def predict(self, X: FloatArray) -> IntArray:
-        return self.classes_[self._log_joint(X).argmax(axis=1)]
+        if self.threshold is None:
+            return self.classes_[self._log_joint(X).argmax(axis=1)]
+        p = self.predict_proba(X)[:, 1]
+        return self.classes_[np.where(p >= self.threshold, 1, 0)]
 
     def get_state(self) -> tuple[Params, Arrays]:
         params: Params = {
@@ -65,6 +74,7 @@ class NaiveBayes(BaseModel):
             "laplace": self.laplace,
             "n_features": self.n_features_,
             "cat_sizes": self.cat_sizes,
+            "threshold": self.threshold,
         }
         arrays: Arrays = {
             "classes": self.classes_,
@@ -82,6 +92,7 @@ class NaiveBayes(BaseModel):
         self.laplace = params["laplace"]
         self.n_features_ = params["n_features"]
         self.cat_sizes = params["cat_sizes"]
+        self.threshold = params.get("threshold")
         self.classes_ = arrays["classes"]
         self.prior = arrays["prior"]
         self.mu = arrays["mu"]

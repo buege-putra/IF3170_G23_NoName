@@ -1,0 +1,1 @@
+{"class": "KNN", "params": {"k": 5, "metric": "euclidean", "weights": "uniform", "p": 3.0}}

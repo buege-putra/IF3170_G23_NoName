@@ -1,0 +1,1 @@
+{"class": "SVM", "params": {"C": 1.0, "kernel": "poly", "degree": 3, "gamma": 0.03333333333333333, "coef0": 1.0, "tol": 0.001, "max_passes": 5, "max_iter": 1000, "max_samples": 3000, "seed": 67, "b": -0.8239093986100817}}

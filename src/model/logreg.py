@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Literal, Self
 
 import numpy as np
@@ -35,6 +36,9 @@ class LogisticRegression(BaseModel):
         tol: training berhenti jika perubahan objective antar epoch lebih kecil dari ini.
         batch_size: ukuran mini-batch, 1 untuk stochastic, None untuk full-batch.
         seed: seed urutan acak data tiap epoch.
+        init_bias: nilai awal bias.
+        init_weights: nilai awal bobot, None berarti nol.
+        track_params: jika True, simpan (bias, bobot) tiap epoch di trajectory_.
 
     Usage:
         model = LogisticRegression(penalty="elasticnet", alpha=1e-3, l1_ratio=0.5)
@@ -48,10 +52,13 @@ class LogisticRegression(BaseModel):
         - Default batch_size=1 adalah stochastic gradient ascent pada log conditional likelihood.
         - Penalti L2 masuk ke gradien, penalti L1 lewat proximal step (soft-thresholding,
           Parikh & Boyd 2014, Proximal Algorithms, sec. 6.5.2).
+        - trajectory_ berukuran (epoch + 1, 1 + n_features), baris pertama adalah titik awal.
+          Tidak ikut tersimpan oleh save.
     """
 
     w_: FloatArray
     bias_: float
+    trajectory_: FloatArray
 
     def __init__(
         self,
@@ -63,6 +70,9 @@ class LogisticRegression(BaseModel):
         tol: float = 1e-6,
         batch_size: int | None = 1,
         seed: int = 67,
+        init_bias: float = 0.0,
+        init_weights: Sequence[float] | None = None,
+        track_params: bool = False,
     ) -> None:
         self.lr = lr
         self.epochs = epochs
@@ -72,6 +82,9 @@ class LogisticRegression(BaseModel):
         self.tol = tol
         self.batch_size = batch_size
         self.seed = seed
+        self.init_bias = init_bias
+        self.init_weights = None if init_weights is None else list(init_weights)
+        self.track_params = track_params
         self.history_: list[float] = []
 
     def fit(self, X: FloatArray, y: IntArray) -> Self:
@@ -87,9 +100,10 @@ class LogisticRegression(BaseModel):
         l1_strength, l2_strength = self._penalty_strengths()
         rng = np.random.default_rng(self.seed)
 
-        self.w_ = np.zeros(n_features)
-        self.bias_ = 0.0
+        self.w_ = self._initial_weights(n_features)
+        self.bias_ = float(self.init_bias)
         self.history_ = []
+        trajectory = [self._parameters()]
         previous_objective = np.inf
 
         for _ in range(self.epochs):
@@ -100,9 +114,14 @@ class LogisticRegression(BaseModel):
 
             objective = self._objective(X, y, l1_strength, l2_strength)
             self.history_.append(objective)
+            trajectory.append(self._parameters())
             if abs(previous_objective - objective) < self.tol:
                 break
             previous_objective = objective
+
+        self.trajectory_ = (
+            np.array(trajectory) if self.track_params else np.empty((0, n_features + 1))
+        )
         return self
 
     def predict_proba(self, X: FloatArray) -> FloatArray:
@@ -124,6 +143,9 @@ class LogisticRegression(BaseModel):
             "tol": self.tol,
             "batch_size": self.batch_size,
             "seed": self.seed,
+            "init_bias": self.init_bias,
+            "init_weights": self.init_weights,
+            "track_params": self.track_params,
             "bias": float(self.bias_),
             "history": self.history_,
         }
@@ -140,6 +162,21 @@ class LogisticRegression(BaseModel):
         self.bias_ = params["bias"]
         self.history_ = params["history"]
         self.w_ = arrays["w"]
+        self.trajectory_ = np.empty((0, len(self.w_) + 1))
+
+    def _initial_weights(self, n_features: int) -> FloatArray:
+        """Return bobot awal, nol jika init_weights tidak diberikan."""
+        if self.init_weights is None:
+            return np.zeros(n_features)
+        if len(self.init_weights) != n_features:
+            raise ValueError(
+                f"init_weights berisi {len(self.init_weights)} nilai, fitur ada {n_features}"
+            )
+        return np.array(self.init_weights, dtype=np.float64)
+
+    def _parameters(self) -> FloatArray:
+        """Return (bias, bobot) saat ini sebagai satu vektor."""
+        return np.concatenate([[self.bias_], self.w_])
 
     def _penalty_strengths(self) -> tuple[float, float]:
         """Return (kekuatan L1, kekuatan L2) sesuai penalty."""

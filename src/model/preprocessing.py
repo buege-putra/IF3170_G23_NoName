@@ -68,7 +68,7 @@ class Preprocessor:
         X = self._filled(df)
         parts = [(X[self.num] - self.mu) / self.sd]
         for c in self.cat:
-            codes = pd.Categorical(X[c], categories=self.levels[c])
+            codes = pd.Series(pd.Categorical(X[c], categories=self.levels[c]), index=X.index, name=c)
             parts.append(pd.get_dummies(codes, prefix=c, dtype=float))
         return pd.concat(parts, axis=1).to_numpy(dtype=float), self._target(df)
 

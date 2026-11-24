@@ -68,7 +68,7 @@ class Preprocessor:
         X = self._filled(df)
         parts = [(X[self.num] - self.mu) / self.sd]
         for c in self.cat:
-            codes = pd.Categorical(X[c], categories=self.levels[c])
+            codes = pd.Series(pd.Categorical(X[c], categories=self.levels[c]), index=X.index)
             parts.append(pd.get_dummies(codes, prefix=c, dtype=float))
         return pd.concat(parts, axis=1).to_numpy(dtype=float), self._target(df)
 
@@ -87,10 +87,7 @@ class Preprocessor:
         out = pd.DataFrame(d, index=X.index)
         for c in self.cat:
             out[c] = pd.Categorical(X[c], categories=self.levels[c]).codes
-        cols = (list(COUNT_CAPS) + ["needs_parking", "is_returning_guest", "arrival_month",
-                "arrival_year", "prior_completed_bookings", "arrival_day"]
-                + list(QUANTILE_BINS) + self.cat)
-        return out[cols].to_numpy(dtype=float), self._target(df)
+        return out[self.nb_feature_names].to_numpy(dtype=float), self._target(df)
 
     def fit_transform(self, df: pd.DataFrame) -> tuple[FloatArray, IntArray | None]:
         return self.fit(df).transform(df)
@@ -98,6 +95,12 @@ class Preprocessor:
     @property
     def feature_names(self) -> list[str]:
         return self.num + self.cat
+
+    @property
+    def nb_feature_names(self) -> list[str]:
+        return (list(COUNT_CAPS) + ["needs_parking", "is_returning_guest", "arrival_month",
+                "arrival_year", "prior_completed_bookings", "arrival_day"]
+                + list(QUANTILE_BINS) + self.cat)
 
     @property
     def categorical_idx(self) -> list[int]:
